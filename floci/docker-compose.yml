@@ -1,0 +1,45 @@
+# Floci - Local AWS Emulator
+# Official image: floci/floci:latest
+# Endpoint: http://localhost:4566
+# Web Console: http://localhost:4566/_floci/ui
+#
+# Usage:
+#   Start:  docker compose up -d
+#   Stop:   docker compose down
+#   Logs:   docker compose logs -f floci
+#   Reset:  docker compose down -v  (destroys persisted data)
+
+services:
+  floci:
+    image: floci/floci:latest
+    container_name: floci
+    ports:
+      - "4566:4566"
+    volumes:
+      # Persist emulated AWS resource state across container restarts.
+      # Remove this volume mount to use ephemeral (memory-only) mode.
+      - ./data:/app/data
+      # Docker socket is required for the web console sidecar and for
+      # Docker-backed services (Lambda, RDS, ECS, etc.).
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      # Use hybrid mode: in-memory performance with periodic flush every 5s.
+      # Options: memory | persistent | hybrid | wal
+      FLOCI_STORAGE_MODE: hybrid
+      # Path inside the container where state is written when using
+      # persistent / hybrid / wal modes. Matches the volume mount above.
+      FLOCI_STORAGE_PERSISTENT_PATH: /app/data
+      # Set the hostname Floci uses when constructing returned service URLs
+      # (e.g. SQS QueueUrls). Must match the Docker Compose service name so
+      # other containers on the same network can resolve it.
+      FLOCI_HOSTNAME: floci
+      # Default region reported by Floci.
+      FLOCI_DEFAULT_REGION: us-east-1
+    healthcheck:
+      # Floci exposes /_floci/health once the emulator is ready.
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_floci/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
