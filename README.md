@@ -1,531 +1,401 @@
 # terraform-floci-infrastructure
 
-A production-style local AWS Infrastructure as Code (IaC) repository using **Terraform** and **[Floci](https://github.com/floci-io/floci)** — a free, open-source local AWS emulator.
+Practice Terraform and AWS — **entirely on your laptop**. No AWS account. No credit card. No cloud costs.
 
-No real AWS account. No credentials. No cloud costs.
-
----
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Repository Structure](#repository-structure)
-- [Prerequisites](#prerequisites)
-- [Quick Start](#quick-start)
-- [Floci](#floci)
-  - [Start and Stop](#start-and-stop)
-  - [Web Console](#web-console)
-  - [Persistence](#persistence)
-- [Credentials Configuration](#credentials-configuration)
-  - [Environment Variables](#environment-variables)
-  - [Optional AWS CLI Profile](#optional-aws-cli-profile)
-- [Terraform](#terraform)
-  - [How State Works](#how-state-works)
-  - [Initialise](#initialise)
-  - [Plan](#plan)
-  - [Apply](#apply)
-  - [Destroy](#destroy)
-- [Automation Scripts](#automation-scripts)
-- [Verifying Resources with the AWS CLI](#verifying-resources-with-the-aws-cli)
-- [Extending the Repository](#extending-the-repository)
-- [Troubleshooting](#troubleshooting)
-- [Known Floci Limitations](#known-floci-limitations)
+This repo uses **[Floci](https://github.com/floci-io/floci)**, a free tool that runs a fake AWS on your machine. You write real Terraform code, it provisions real resources — they just live locally instead of in the cloud.
 
 ---
 
-## Overview
+## What is this for?
 
-This repository provisions three AWS-compatible resources entirely on your local machine:
+If you want to learn or practice:
+- How Terraform works (plan, apply, destroy, state)
+- How to write reusable Terraform modules
+- How AWS services like S3, DynamoDB, and SQS work
+- How IaC (Infrastructure as Code) fits into a real project
 
-| Service    | Resource              | Module                              |
-|------------|-----------------------|-------------------------------------|
-| S3         | Object storage bucket | `infrastructure/modules/s3`         |
-| DynamoDB   | NoSQL table           | `infrastructure/modules/dynamodb`   |
-| SQS        | Message queue         | `infrastructure/modules/sqs`        |
-
-Terraform uses the standard **hashicorp/aws** provider (`~> 6.0`) with its endpoint override feature to redirect all API calls to Floci running at `http://localhost:4566`. No real AWS account or IAM credentials are involved at any point.
+...but you don't have an AWS account or don't want to pay — this is for you.
 
 ---
 
-## Architecture
+## What gets created?
 
-```
-Your machine
-│
-├── Docker
-│   └── floci/floci:latest  ← Local AWS emulator on :4566
-│
-└── Terraform (hashicorp/aws ~> 6.0)
-    ├── endpoint: http://localhost:4566  (S3, DynamoDB, SQS)
-    ├── credentials: "test" / "test"     (dummy — Floci accepts any value)
-    └── state: local file (terraform.tfstate, git-ignored)
-```
+When you run `terraform apply`, three AWS-compatible resources are provisioned locally:
 
-All service calls go to Floci via the `endpoints {}` block in `provider.tf`. Floci stores resource state in `floci/data/` using its **hybrid** storage mode (in-memory with periodic flush every 5 seconds).
+| What          | AWS Service | What it does                        |
+|---------------|-------------|-------------------------------------|
+| A bucket      | S3          | Stores files (like Google Drive)    |
+| A table       | DynamoDB    | Stores data (like a NoSQL database) |
+| A queue       | SQS         | Passes messages between services    |
+
+They all live inside Floci on your machine at `http://localhost:4566`.
 
 ---
 
-## Repository Structure
+## How it works (simple version)
 
 ```
-terraform-floci-infrastructure/
-├── infrastructure/
-│   ├── modules/
-│   │   ├── s3/                   # Reusable S3 module
-│   │   │   ├── main.tf
-│   │   │   ├── variables.tf
-│   │   │   └── outputs.tf
-│   │   ├── dynamodb/             # Reusable DynamoDB module
-│   │   │   ├── main.tf
-│   │   │   ├── variables.tf
-│   │   │   └── outputs.tf
-│   │   └── sqs/                  # Reusable SQS module
-│   │       ├── main.tf
-│   │       ├── variables.tf
-│   │       └── outputs.tf
-│   │
-│   └── environments/
-│       └── local/                # Local environment configuration
-│           ├── main.tf           # Module calls + common_tags
-│           ├── provider.tf       # AWS provider + Floci endpoint config
-│           ├── variables.tf      # All input variables with defaults
-│           ├── outputs.tf        # Exposed resource attributes
-│           └── terraform.tfvars.example
-│
-├── floci/
-│   ├── docker-compose.yml        # Floci container definition
-│   └── data/                     # Persisted Floci state (git-ignored)
-│
-├── scripts/
-│   ├── init.sh                   # Start Floci + terraform init
-│   ├── plan.sh                   # terraform validate + plan
-│   ├── apply.sh                  # terraform apply
-│   ├── destroy.sh                # terraform destroy (with confirmation)
-│   └── status.sh                 # Show container + Terraform state
-│
-├── .env.example                  # Credential template (copy to .env)
-├── .gitignore
-├── .terraform.lock.hcl           # Provider dependency lock file
-└── README.md
+You write Terraform code
+        ↓
+Terraform talks to Floci (fake AWS on your laptop)
+        ↓
+Floci creates the resources locally
+        ↓
+You can inspect them, test against them, then destroy them
 ```
+
+No internet calls to real AWS. No IAM permissions. No bills.
 
 ---
 
 ## Prerequisites
 
-| Tool        | Minimum version | Install                                      |
-|-------------|-----------------|----------------------------------------------|
-| Docker      | 24+             | https://docs.docker.com/get-docker/          |
-| Docker Compose | v2 (plugin) | Included with Docker Desktop                 |
-| Terraform   | 1.6+            | https://developer.hashicorp.com/terraform/install |
-| AWS CLI     | v2 (optional)   | https://aws.amazon.com/cli/                  |
-| curl        | any             | Pre-installed on most systems                |
+You need these installed before starting:
 
-> **Windows users:** run the Bash scripts inside WSL 2. All commands in this README assume a Bash-compatible shell.
+### 1. Floci
+Floci is the fake AWS that runs on your machine.
+
+```bash
+# Install via the official installer (Linux / macOS / WSL)
+curl -fsSL https://get.floci.io | bash
+
+# Start it
+floci start
+
+# Check it's running
+floci status
+# You should see: Reachable: yes
+```
+
+> **Windows users:** run everything inside **WSL 2** (Windows Subsystem for Linux). Open your WSL terminal and work from there.
+
+### 2. Terraform
+Terraform is the tool that reads your `.tf` files and creates resources.
+
+```bash
+# Check if already installed
+terraform version
+
+# If not installed, follow: https://developer.hashicorp.com/terraform/install
+# On Ubuntu/WSL:
+sudo apt-get update && sudo apt-get install -y terraform
+```
+
+### 3. AWS CLI (optional but recommended)
+Used to verify that your resources were actually created.
+
+```bash
+# Check if already installed
+aws --version
+
+# Install guide: https://aws.amazon.com/cli/
+```
 
 ---
 
-## Quick Start
+## Step-by-Step Guide
+
+### Step 1 — Clone this repo
 
 ```bash
-# 1. Clone the repository
 git clone <repo-url>
 cd terraform-floci-infrastructure
+```
 
-# 2. Set up local credentials
-cp .env.example .env          # values are already correct — no edits needed
+### Step 2 — Start Floci
 
-# 3. Start Floci and initialise Terraform
-./scripts/init.sh
+If you installed Floci via the CLI:
+```bash
+floci start
+floci status   # confirm it shows: Reachable: yes
+```
 
-# 4. Preview what will be created
-./scripts/plan.sh
+If you prefer Docker Compose instead:
+```bash
+docker compose -f floci/docker-compose.yml up -d
+```
 
-# 5. Provision the resources
-./scripts/apply.sh
+> You only need **one** of the two methods above. If `floci status` shows it's running, you're good.
 
-# 6. Verify
+### Step 3 — Go to the Terraform environment folder
+
+**Always run Terraform commands from this folder:**
+
+```bash
+cd infrastructure/environments/local
+```
+
+This is important. The modules (`infrastructure/modules/s3`, etc.) are just building blocks — they don't have provider configuration. The `local` environment folder is where everything is wired together.
+
+### Step 4 — Initialise Terraform
+
+This downloads the AWS provider plugin (one-time setup):
+
+```bash
+terraform init
+```
+
+You should see: `Terraform has been successfully initialized!`
+
+### Step 5 — Preview what will be created
+
+```bash
+terraform plan
+```
+
+Terraform will show you exactly what it's going to create — without actually creating anything yet. It's like a dry run. Read through it and make sure it looks right.
+
+You'll see three resources listed: an S3 bucket, a DynamoDB table, and an SQS queue.
+
+### Step 6 — Create the resources
+
+```bash
+terraform apply
+```
+
+Terraform asks: `Do you want to perform these actions?`
+
+Type `yes` and press Enter.
+
+You should see: `Apply complete! Resources: 4 added.`
+
+### Step 7 — Verify the resources exist
+
+Now check that Floci actually has the resources:
+
+```bash
+# See your S3 bucket
 aws --endpoint-url http://localhost:4566 s3 ls
+
+# See your DynamoDB table
 aws --endpoint-url http://localhost:4566 dynamodb list-tables
+
+# See your SQS queue
 aws --endpoint-url http://localhost:4566 sqs list-queues
 ```
 
----
+You should see `floci-demo-bucket`, `floci-demo-table`, and `floci-demo-queue` in the output.
 
-## Floci
-
-### Start and Stop
-
-```bash
-# Start Floci in the background
-docker compose -f floci/docker-compose.yml up -d
-
-# View logs
-docker compose -f floci/docker-compose.yml logs -f floci
-
-# Stop Floci (keeps persisted state)
-docker compose -f floci/docker-compose.yml down
-
-# Stop and wipe all persisted state
-docker compose -f floci/docker-compose.yml down -v
-rm -rf floci/data/
-```
-
-### Web Console
-
-Floci ships a browser-based resource inspector. Once the container is running, open:
-
-```
-http://localhost:4566/_floci/ui
-```
-
-The first visit pulls the console sidecar image and starts it automatically. No additional configuration is required.
-
-### Persistence
-
-Floci is configured with `FLOCI_STORAGE_MODE=hybrid`. This keeps resource state in memory for performance and flushes to disk every 5 seconds. State survives container restarts as long as `floci/data/` exists.
-
-| Mode         | Behaviour                                | Best for              |
-|--------------|------------------------------------------|-----------------------|
-| `memory`     | All data lost when container stops       | CI / ephemeral tests  |
-| `hybrid`     | In-memory + flush every 5s (default)     | Local development     |
-| `persistent` | Flush on every write                     | High-durability local |
-| `wal`        | Write-ahead log before every response    | Maximum durability    |
-
-Change the mode by editing `FLOCI_STORAGE_MODE` in `floci/docker-compose.yml`.
+> **Why `--endpoint-url`?** This tells the AWS CLI to talk to Floci instead of real AWS.
 
 ---
 
-## Credentials Configuration
+## Credentials — why `test` / `test`?
 
-### Environment Variables
+Floci doesn't care about credentials — it accepts any non-empty value. So we use `test` as both the access key and secret key. This is intentional. These are **not** real AWS credentials and they will not work against real AWS.
 
-This repository uses **dummy credentials** — Floci accepts any non-empty string.
+The credentials are pre-configured in `provider.tf` so you don't need to do anything.
 
-```bash
-AWS_ACCESS_KEY_ID=test
-AWS_SECRET_ACCESS_KEY=test
-AWS_DEFAULT_REGION=us-east-1
-AWS_ENDPOINT_URL=http://localhost:4566
-```
+---
 
-Copy `.env.example` to `.env` to have the scripts load them automatically:
+## Useful Terraform Commands
+
+Run these from `infrastructure/environments/local`:
 
 ```bash
-cp .env.example .env
-```
+# See what's currently managed by Terraform
+terraform state list
 
-`.env` is excluded from Git. Never put real AWS credentials in any file in this repository.
+# Preview changes without applying
+terraform plan
 
-### Optional AWS CLI Profile
+# Apply only one resource (e.g. just S3)
+terraform apply -target=module.s3_bucket
 
-You can configure a named profile called `floci` so you can use the AWS CLI without passing `--endpoint-url` on every command:
+# Destroy only one resource
+terraform destroy -target=module.s3_bucket
 
-```bash
-# Configure the profile
-aws configure --profile floci
-# AWS Access Key ID:     test
-# AWS Secret Access Key: test
-# Default region:        us-east-1
-# Default output format: json
+# Destroy everything
+terraform destroy
 
-# Set the endpoint override for the profile
-aws configure set endpoint_url http://localhost:4566 --profile floci
-```
-
-Then use it like this:
-
-```bash
-aws s3 ls --profile floci
-aws dynamodb list-tables --profile floci
-aws sqs list-queues --profile floci
-```
-
-Or export it for your session:
-
-```bash
-export AWS_PROFILE=floci
-aws s3 ls
+# Check if anything changed outside of Terraform (drift detection)
+terraform plan -refresh-only
 ```
 
 ---
 
-## Terraform
+## Trying things out — hands-on examples
 
-### How State Works
+Once resources are applied, try these to see the services in action:
 
-Terraform tracks every resource it manages in a **state file** (`terraform.tfstate`). This file:
-
-- Lives in `infrastructure/environments/local/` by default (local backend).
-- Is **excluded from Git** via `.gitignore` — it may contain sensitive output values.
-- Must be present to run `plan`, `apply`, or `destroy` reliably.
-- Can be inspected at any time:
-
+**Upload a file to S3:**
 ```bash
-# List all managed resources
-terraform -chdir=infrastructure/environments/local state list
-
-# Show details of a specific resource
-terraform -chdir=infrastructure/environments/local state show module.s3_bucket.aws_s3_bucket.this
+aws --endpoint-url http://localhost:4566 s3 cp README.md s3://floci-demo-bucket/test.md
+aws --endpoint-url http://localhost:4566 s3 ls s3://floci-demo-bucket
 ```
 
-**Future remote state:** Floci supports the S3 backend with DynamoDB locking. See the [Floci Terraform docs](https://github.com/floci-io/floci/blob/main/docs/getting-started/terraform.md) for the backend configuration and bootstrap commands.
-
-### Initialise
-
-Initialisation downloads the AWS provider and sets up the working directory. Run this once, or after adding a new module or provider.
-
+**Write and read a DynamoDB item:**
 ```bash
-# Via script (also starts Floci)
-./scripts/init.sh
-
-# Manually
-terraform -chdir=infrastructure/environments/local init
-```
-
-After `init` completes, commit the updated `.terraform.lock.hcl` to lock provider versions for all contributors.
-
-### Plan
-
-```bash
-# Via script
-./scripts/plan.sh
-
-# Manually
-terraform -chdir=infrastructure/environments/local validate
-terraform -chdir=infrastructure/environments/local plan
-```
-
-### Apply
-
-```bash
-# Via script
-./scripts/apply.sh
-
-# Manually
-terraform -chdir=infrastructure/environments/local apply
-```
-
-### Destroy
-
-```bash
-# Via script (prompts for confirmation)
-./scripts/destroy.sh
-
-# Manually
-terraform -chdir=infrastructure/environments/local destroy
-```
-
----
-
-## Automation Scripts
-
-All scripts live in `scripts/` and require Bash. Run them from the repository root.
-
-| Script        | Purpose                                                      |
-|---------------|--------------------------------------------------------------|
-| `init.sh`     | Start Floci, wait for health, run `terraform init`           |
-| `plan.sh`     | Check Floci health, validate config, show execution plan     |
-| `apply.sh`    | Check Floci health, apply infrastructure changes             |
-| `destroy.sh`  | Confirm, destroy resources, optionally stop Floci            |
-| `status.sh`   | Show container status, Floci health, and Terraform resources |
-
-Each script:
-- Uses `set -euo pipefail` for strict error handling.
-- Checks for `docker` and `terraform` before proceeding.
-- Verifies Floci is healthy before running any Terraform command.
-- Loads credentials from `.env` if the file exists.
-
----
-
-## Verifying Resources with the AWS CLI
-
-After running `apply`, verify the provisioned resources:
-
-```bash
-export AWS_ACCESS_KEY_ID=test
-export AWS_SECRET_ACCESS_KEY=test
-export AWS_DEFAULT_REGION=us-east-1
-ENDPOINT=http://localhost:4566
-
-# S3 — list buckets
-aws --endpoint-url $ENDPOINT s3 ls
-
-# S3 — check versioning
-aws --endpoint-url $ENDPOINT s3api get-bucket-versioning \
-  --bucket floci-demo-bucket
-
-# S3 — put and retrieve an object
-aws --endpoint-url $ENDPOINT s3 cp README.md s3://floci-demo-bucket/test.md
-aws --endpoint-url $ENDPOINT s3 ls s3://floci-demo-bucket
-
-# DynamoDB — list tables
-aws --endpoint-url $ENDPOINT dynamodb list-tables
-
-# DynamoDB — describe the table
-aws --endpoint-url $ENDPOINT dynamodb describe-table \
-  --table-name floci-demo-table
-
-# DynamoDB — put and get an item
-aws --endpoint-url $ENDPOINT dynamodb put-item \
+aws --endpoint-url http://localhost:4566 dynamodb put-item \
   --table-name floci-demo-table \
-  --item '{"id": {"S": "item-1"}, "value": {"S": "hello from floci"}}'
+  --item '{"id": {"S": "item-1"}, "value": {"S": "hello world"}}'
 
-aws --endpoint-url $ENDPOINT dynamodb get-item \
+aws --endpoint-url http://localhost:4566 dynamodb get-item \
   --table-name floci-demo-table \
   --key '{"id": {"S": "item-1"}}'
+```
 
-# SQS — list queues
-aws --endpoint-url $ENDPOINT sqs list-queues
-
-# SQS — send and receive a message
-QUEUE_URL=$(aws --endpoint-url $ENDPOINT sqs get-queue-url \
+**Send and receive an SQS message:**
+```bash
+# Get the queue URL first
+QUEUE_URL=$(aws --endpoint-url http://localhost:4566 sqs get-queue-url \
   --queue-name floci-demo-queue --query QueueUrl --output text)
 
-aws --endpoint-url $ENDPOINT sqs send-message \
+# Send a message
+aws --endpoint-url http://localhost:4566 sqs send-message \
   --queue-url "$QUEUE_URL" \
-  --message-body "hello from terraform + floci"
+  --message-body "hello from floci"
 
-aws --endpoint-url $ENDPOINT sqs receive-message \
+# Receive the message
+aws --endpoint-url http://localhost:4566 sqs receive-message \
   --queue-url "$QUEUE_URL"
 ```
 
 ---
 
-## Extending the Repository
+## The Web Console (visual UI)
 
-To add a new AWS service (e.g. SNS):
+Floci has a browser UI where you can see all your resources visually:
 
-1. **Create the module** under `infrastructure/modules/sns/` with `main.tf`, `variables.tf`, and `outputs.tf`.
+```
+http://localhost:4566/_floci/ui
+```
 
-2. **Call the module** from `infrastructure/environments/local/main.tf`:
-   ```hcl
-   module "sns_topic" {
-     source     = "../../modules/sns"
-     topic_name = var.sns_topic_name
-     tags       = local.common_tags
-   }
-   ```
+Open that in your browser after applying. You'll see the S3 bucket, DynamoDB table, and SQS queue listed there.
 
-3. **Add the endpoint override** in `infrastructure/environments/local/provider.tf`:
-   ```hcl
-   endpoints {
-     s3       = var.floci_endpoint
-     dynamodb = var.floci_endpoint
-     sqs      = var.floci_endpoint
-     sns      = var.floci_endpoint   # ← add this
-   }
-   ```
+> **Tip:** Use the UI to *look* at resources, not to delete them. If you delete something through the UI, Terraform's state file won't know about it and things can get out of sync. Always delete through Terraform.
 
-4. **Add variables** in `variables.tf` and `terraform.tfvars.example`.
+---
 
-5. **Add outputs** in `outputs.tf`.
+## Understanding Terraform State
 
-6. **Re-run init and apply:**
-   ```bash
-   ./scripts/init.sh
-   ./scripts/apply.sh
-   ```
+Terraform keeps a file called `terraform.tfstate` that tracks everything it has created. Think of it as Terraform's memory.
 
-> Before adding a service, confirm it is supported by checking the [Floci Services Overview](https://github.com/floci-io/floci/blob/main/README.md#supported-services). Floci supports 45+ services including SNS, Lambda, IAM, STS, KMS, Secrets Manager, EventBridge, Step Functions, API Gateway, Cognito, and more.
+- It lives in `infrastructure/environments/local/terraform.tfstate`
+- It is **excluded from Git** (see `.gitignore`) — never commit it
+- If you delete a resource in Floci manually (via UI or CLI), Terraform still thinks it exists — this is called **drift**
+
+**How to detect drift:**
+```bash
+terraform plan -refresh-only
+# If nothing changed: "No changes. Your infrastructure matches the configuration."
+# If something is missing: it will show what drifted
+```
+
+**How to fix drift:**
+```bash
+terraform apply -refresh-only   # update Terraform's memory to match reality
+terraform apply                 # re-create anything that's now missing
+```
+
+---
+
+## Stopping Floci
+
+```bash
+# If you used the CLI
+floci stop
+
+# If you used Docker Compose
+docker compose -f floci/docker-compose.yml down
+```
+
+Floci saves its state to `floci/data/` so your resources will still be there when you start it again.
+
+To completely reset (wipe all Floci data):
+```bash
+docker compose -f floci/docker-compose.yml down -v
+rm -rf floci/data/
+```
+
+---
+
+## Understanding the Folder Structure
+
+```
+terraform-floci-infrastructure/
+│
+├── infrastructure/
+│   ├── modules/              ← Building blocks (reusable Terraform code)
+│   │   ├── s3/               ← "How to create an S3 bucket"
+│   │   ├── dynamodb/         ← "How to create a DynamoDB table"
+│   │   └── sqs/              ← "How to create an SQS queue"
+│   │
+│   └── environments/
+│       └── local/            ← THIS is where you run Terraform from
+│           ├── provider.tf   ← Tells Terraform to use Floci instead of real AWS
+│           ├── main.tf       ← Calls the modules above
+│           ├── variables.tf  ← Settings you can change (bucket name, etc.)
+│           └── outputs.tf    ← Values printed after apply (ARNs, URLs, etc.)
+│
+├── floci/
+│   └── docker-compose.yml    ← Alternative way to start Floci
+│
+├── scripts/                  ← Shortcut scripts (init, plan, apply, destroy, status)
+└── .env.example              ← Copy to .env if using the scripts
+```
+
+The key idea: **modules define resources, environments use them**. You never run `terraform apply` from inside a module folder.
+
+---
+
+## Adding a New AWS Service
+
+Want to add SNS (notifications)? Here's the pattern:
+
+1. Create `infrastructure/modules/sns/` with `main.tf`, `variables.tf`, `outputs.tf`
+2. Call it from `infrastructure/environments/local/main.tf`
+3. Add `sns = var.floci_endpoint` to the `endpoints {}` block in `provider.tf`
+4. Run `terraform init` then `terraform apply`
+
+Floci supports 45+ AWS services. Check the [full list here](https://github.com/floci-io/floci/blob/main/README.md#supported-services).
 
 ---
 
 ## Troubleshooting
 
-**Floci container won't start**
-```
-Error response from daemon: Conflict. The container name "/floci" is already in use.
-```
-A stopped container with the same name exists. Remove it:
+**"Invalid provider configuration" or STS error**
+You're running `terraform` from inside a module folder. Move to the environment folder:
 ```bash
-docker rm floci
-docker compose -f floci/docker-compose.yml up -d
+cd infrastructure/environments/local
+terraform plan
 ```
 
----
-
-**Health check times out**
-```
-[init] ✗ Floci did not become healthy within 60s.
-```
-Check the container logs for startup errors:
+**"BucketAlreadyExists" on apply**
+The bucket exists in Floci but Terraform doesn't know about it (state was lost). Import it:
 ```bash
-docker compose -f floci/docker-compose.yml logs floci
+terraform import module.s3_bucket.aws_s3_bucket.this floci-demo-bucket
 ```
-Common causes: port 4566 already in use by another process, or Docker daemon not running.
 
----
-
-**Terraform can't connect to endpoint**
-```
-Error: Failed to query available provider packages
-```
-Ensure Floci is running before `terraform init`:
+**"Port 4566 already in use"**
+Something else is using that port. Find it:
 ```bash
-./scripts/init.sh   # always starts Floci first
+lsof -i :4566        # macOS / Linux
+netstat -ano | grep 4566   # Windows / WSL
 ```
 
----
-
-**`NoCredentialProviders` error**
-```
-No valid credential providers found.
-```
-The AWS provider needs credentials even for local use. Ensure your environment has:
+**Floci not reachable**
 ```bash
-export AWS_ACCESS_KEY_ID=test
-export AWS_SECRET_ACCESS_KEY=test
+floci status         # check if it's running
+floci start          # start it if not
 ```
-Or copy `.env.example` to `.env` and re-run the script.
+
+**Changes not showing after modifying `.tf` files**
+Run `terraform plan` to see the diff. Terraform only applies changes when you run `apply`.
 
 ---
 
-**S3 bucket already exists**
-```
-BucketAlreadyExists: The requested bucket name is not available.
-```
-Floci is stateful — if the bucket was created in a previous run and state was lost, import it:
-```bash
-terraform -chdir=infrastructure/environments/local \
-  import module.s3_bucket.aws_s3_bucket.this floci-demo-bucket
-```
+## Known Limitations
 
----
-
-**`terraform.tfstate` is missing after container restart**
-Terraform state is stored locally on your filesystem — it is not affected by Floci restarts. If the state file is gone, you will need to re-apply or use `terraform import` to reconcile. This is why committing state to a remote backend (even a Floci-backed S3 bucket) is recommended for team workflows.
-
----
-
-**Port 4566 already in use**
-```bash
-# Find what is using the port
-lsof -i :4566
-
-# Or on Windows/WSL
-netstat -ano | grep 4566
-```
-
----
-
-## Known Floci Limitations
-
-- **No real network traffic:** Floci is an in-process emulator. It does not simulate network latency, throttling, or service quotas.
-- **Lambda cold starts differ:** Floci uses real Docker containers for Lambda, but startup behaviour and timeouts may differ from real AWS.
-- **IAM is not enforced by default:** Floci accepts any credentials and does not enforce IAM policies unless you explicitly enable stricter auth (`FLOCI_SERVICES_S3_ENFORCE_AUTH=true` for S3).
-- **CloudFront and Route53 are control-plane stubs:** Data-plane behaviour (actual request routing and DNS resolution) is not emulated.
-- **No cross-region replication:** Floci runs as a single instance; multi-region setups are not meaningful locally.
-- **EKS / RDS / ElastiCache require Docker:** These services launch real containers. They need the Docker socket mounted and sufficient memory on your machine.
-- **State is not shared by default:** Each developer runs their own Floci instance. For shared local state, configure the S3 backend pointing at Floci (see the Terraform docs link above).
+- Floci is a local emulator — it doesn't simulate network latency or AWS service quotas
+- IAM permissions are not enforced by default (all actions are allowed)
+- Resources only exist on your machine — other people on your team have their own separate Floci instances
+- Some advanced AWS features (CloudFront routing, Route53 DNS resolution) are stubs only
 
 ---
 
 ## References
 
-- [Floci GitHub](https://github.com/floci-io/floci)
-- [Floci — Terraform Guide](https://github.com/floci-io/floci/blob/main/docs/getting-started/terraform.md)
-- [Floci — Services Overview](https://github.com/floci-io/floci/blob/main/README.md#supported-services)
-- [Terraform AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
-- [Terraform Language Docs](https://developer.hashicorp.com/terraform/language)
+- [Floci docs](https://github.com/floci-io/floci)
+- [Terraform AWS provider docs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
+- [Terraform language guide](https://developer.hashicorp.com/terraform/language)
