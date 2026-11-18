@@ -8,13 +8,33 @@ terraform {
     }
   }
 
-  # Local backend — state is stored in terraform.tfstate in this directory.
-  # This file is excluded from Git via .gitignore.
+  # Remote state backend — stored in Floci's S3 (local, not real AWS).
+  # The bucket and lock table are created by state-bootstrap/main.tf.
+  # Run that ONCE before using this environment.
   #
-  # To migrate to a Floci-backed S3 remote state (fully local, no real AWS),
-  # replace this block with the s3 backend snippet from the README and
-  # pre-create the bucket and lock table using the bootstrap commands there.
-  backend "local" {}
+  # To migrate existing local state into this backend run:
+  #   terraform init -migrate-state
+  backend "s3" {
+    bucket = "my-terraform-state-cicd-demo"
+    key    = "environments/local/terraform.tfstate"
+    region = "us-east-1"
+
+    # Point to Floci instead of real AWS
+    endpoint          = "http://localhost:4566"
+    dynamodb_endpoint = "http://localhost:4566"
+    dynamodb_table    = "terraform-state-lock"
+    encrypt = true
+
+    # Dummy credentials — same as the provider
+    access_key = "test"
+    secret_key = "test"
+
+    # Disable real AWS validation
+    skip_credentials_validation = true
+    skip_region_validation      = true
+    skip_metadata_api_check     = true
+    use_path_style              = true
+  }
 }
 
 provider "aws" {
