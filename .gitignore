@@ -76,3 +76,14 @@ Desktop.ini
 # =============================================================================
 *.log
 logs/
+
+# =============================================================================
+# Text files / temporary notes
+# =============================================================================
+
+# Ignore text files by default.
+*.txt
+
+# Allow explicitly approved text files, if needed.
+!requirements.txt
+!CMakeLists.txt
